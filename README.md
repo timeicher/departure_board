@@ -1,7 +1,7 @@
 # departure_board
 Arduino departure board using the Open-Data-Platform API
 
-To use it you need to create the file arduino_secrets.h in your repository and define the following macros:
+To use it you need to create a file arduino_secrets.h in your repository and define the following macros:
 #define SECRET_SSID "yourwifi"
 #define SECRET_PASS "yourpassword"
 #define API_KEY "yourapikey"
