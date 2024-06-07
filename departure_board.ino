@@ -1,18 +1,16 @@
 //#include <WiFi.h>
 #include <TinyXML.h>
-
 #include <WiFiS3.h>
 #include <TM1637Display.h>
 
-//#include "decoder.h"
 #include "arduino_secrets.h"
 
 char ssid[] = SECRET_SSID;      // your network SSID (name)
 char pass[] = SECRET_PASS;      // your network password (use for WPA, or use as key for WEP)
 const char* apiKey = API_KEY;   // your personal API Key
 
-char url[] = "https://api.opentransportdata.swiss/trias2020";
 char server[] = "api.opentransportdata.swiss";
+char page[] = "/trias2020";
 
 int status = WL_IDLE_STATUS;
 int port = 443;
@@ -64,8 +62,8 @@ void sendPostRequest() {
 
   if (client.connect(server,port)) {
     Serial.println("connected to server");
-    client.println("POST /trias2020 HTTP/1.1");
-    client.println("Host: api.opentransportdata.swiss");
+    client.println("POST " + String(page) + " HTTP/1.1");
+    client.println("Host: " + String(server));
     client.println("Content-Type: application/xml");
     client.println("Accept: application/xml");
     client.println("Authorization: Bearer " + String(apiKey));
