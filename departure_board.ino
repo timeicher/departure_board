@@ -1,5 +1,7 @@
-//#include <WiFi.h>
-#include <TinyXML.h>
+#define DEBUG_PRINT(x) Serial.print(x)
+#define DEBUG_PRINT_LN(x) Serial.println(x)
+
+
 #include <WiFiS3.h>
 #include <TM1637Display.h>
 
@@ -17,6 +19,12 @@ int port = 443;
 
 WiFiSSLClient client;
 
+// times to display; if -1 no valid time; format is hhmmss - hours, minutes, seconds
+int planned_1 = -1;
+int actual_1 = -1;
+int planned_2 = -1;
+int actual_2 = -1;
+
 // Prepare XML data
 const char* xmlData = XML_REQ;
 
@@ -29,63 +37,97 @@ void setup() {
 
   // check for the WiFi module:
   if (WiFi.status() == WL_NO_MODULE) {
-    Serial.println("Communication with WiFi module failed!");
+    DEBUG_PRINT_LN("Communication with WiFi module failed!");
     // don't continue
     while (true);
   }
 
   String fv = WiFi.firmwareVersion();
   if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
-    Serial.println("Please upgrade the firmware");
+    DEBUG_PRINT_LN("Please upgrade the firmware");
   }
 
   // attempt to connect to WiFi network:
   while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(ssid);
+    DEBUG_PRINT("Attempting to connect to SSID: ");
+    DEBUG_PRINT_LN(ssid);
     // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
     status = WiFi.begin(ssid, pass);
 
     // wait 10 seconds for connection:
     delay(10000);
   }
-  Serial.println("Connected to WiFi");
+  DEBUG_PRINT_LN("Connected to WiFi");
   printWifiStatus();
 
   // setup http connection
-  sendPostRequest();
+  sendPostRequest(xmlData);
 }
 
-void sendPostRequest() {
-  Serial.println("making POST request...");
+// finds time coming after find string; returns NO_RESULT if nothing is found
+String find_time(char* find, char* expression, int offset) {
+  char* idx_time = strstr(expression,find);
+  if (idx_time != NULL) {
+    char time[8];
+    strncpy(time,(idx_time + offset), 8); // 32/31 (timetable/expected) characters offset to get to time
+    time[8] = 0;
+    String timetabled(time);
+    return timetabled;
+  }
+  else return "NO_RESULT";
+}
+
+void parseResponse() {
+  String response = "";
+  while (client.connected()) {
+    if (client.available()) {
+      response += (char)client.read();
+    }
+  }
+
+  client.stop();
+  Serial.println("Disconnected from server.");
+
+  char chptr[response.length()];
+  response.toCharArray(chptr, response.length());
+
+  String pln = find_time("trias:TimetabledTime", chptr, 32);
+  String exp = find_time("trias:EstimatedTime", chptr, 31);
+  Serial.println(pln);
+  Serial.println(exp);
+  //Serial.println(response);
+}
+
+void sendPostRequest(const char* xml_Data) {
+  DEBUG_PRINT_LN("making POST request...");
 
 
   if (client.connect(server,port)) {
-    Serial.println("connected to server");
+    DEBUG_PRINT_LN("connected to server");
     client.println("POST " + String(page) + " HTTP/1.1");
     client.println("Host: " + String(server));
     client.println("Content-Type: application/xml");
     client.println("Accept: application/xml");
     client.println("Authorization: Bearer " + String(apiKey));
     client.print("Content-Length: ");
-    client.println(strlen(xmlData));
+    client.println(strlen(xml_Data));
     client.println();
-    client.println(xmlData);
-
-    // Read the response from the server
+    client.println(xml_Data);
+    parseResponse();
+    /* Read the response from the server
     while (client.connected()) {
       if (client.available()) {
         char c = client.read();
         Serial.write(c);
       }
     }
-    Serial.println("\nDisconnecting from server.");
-    client.stop();
+    DEBUG_PRINT_LN("\nDisconnecting from server.");
+    client.stop();*/
   } else {
-    Serial.println("Connection failed.");
+    DEBUG_PRINT_LN("Connection failed.");
   }
 
-  Serial.println("Wait five seconds");
+  DEBUG_PRINT_LN("Wait five seconds");
   delay(5000);
 }
 
@@ -95,17 +137,17 @@ void loop() {
 
 void printWifiStatus() {
   // print the SSID of the network you're attached to:
-  Serial.print("SSID: ");
-  Serial.println(WiFi.SSID());
+  DEBUG_PRINT("SSID: ");
+  DEBUG_PRINT_LN(WiFi.SSID());
 
   // print your board's IP address:
   IPAddress ip = WiFi.localIP();
-  Serial.print("IP Address: ");
-  Serial.println(ip);
+  DEBUG_PRINT("IP Address: ");
+  DEBUG_PRINT_LN(ip);
 
   // print the received signal strength:
   long rssi = WiFi.RSSI();
-  Serial.print("signal strength (RSSI):");
-  Serial.print(rssi);
-  Serial.println(" dBm");
+  DEBUG_PRINT("signal strength (RSSI):");
+  DEBUG_PRINT(rssi);
+  DEBUG_PRINT_LN(" dBm");
 }
