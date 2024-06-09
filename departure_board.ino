@@ -19,22 +19,51 @@ int port = 443;
 
 WiFiSSLClient client;
 
-// times to display; if -1 no valid time; format is hhmmss - hours, minutes, seconds
-int planned_1 = -1;
-int actual_1 = -1;
-int planned_2 = -1;
-int actual_2 = -1;
+// times to display (planned and actual); if "NO_RESULT" there is no valid time; format is "hh:mm:ss" - hours, minutes, seconds
+String pln1;
+String pln2;
+String act1;
+String act2;
 
 // Prepare XML data
 const char* xmlData = XML_REQ;
 
+// initialisiation of the displays
+#define CLK_T1 2
+#define DIO_T1 3
+TM1637Display dis_time1(CLK_T1, DIO_T1);
+
+#define CLK_D1 4
+#define DIO_D1 5
+TM1637Display dis_delay1(CLK_D1, DIO_D1);
+
+#define CLK_T2 7
+#define DIO_T2 6
+TM1637Display dis_time2(CLK_T2, DIO_T2);
+
+#define CLK_D2 12
+#define DIO_D2 11
+TM1637Display dis_delay2(CLK_D2, DIO_D2);
+
+bool display_debug = true;
+
 void setup() {
   //Initialize serial and wait for port to open:
   Serial.begin(9600);
+  int brightness = 0;
+  dis_time1.setBrightness(brightness);
+  dis_time1.clear();
+  dis_delay1.setBrightness(brightness);
+  dis_delay1.clear();
+  dis_time2.setBrightness(brightness);
+  dis_time2.clear();
+  dis_delay2.setBrightness(brightness);
+  dis_delay2.clear();
+
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
-
+  
   // check for the WiFi module:
   if (WiFi.status() == WL_NO_MODULE) {
     DEBUG_PRINT_LN("Communication with WiFi module failed!");
@@ -62,6 +91,58 @@ void setup() {
 
   // setup http connection
   sendPostRequest(xmlData);
+
+  setdisplay(pln1, act1, dis_time1, dis_delay1);
+}
+
+// Sets a display; if exp_time is true we treat it as a delay display
+void setdisplay(String plnstr, String actstr, TM1637Display dis_time, TM1637Display dis_delay) {
+  uint8_t TimeDisp[] = {0x00, 0x00, 0x00, 0x00};
+
+  if (actstr == "NO_RESULT") {
+    dis_delay.clear();
+  }
+  // if there is no expected departure time display error
+  if (plnstr == "NO_RESULT") {
+    const uint8_t dis_err[] = {
+      SEG_A | SEG_F | SEG_G | SEG_E | SEG_D, // E
+      SEG_G | SEG_E, // R
+      SEG_G | SEG_E, // R
+      0
+    };
+    dis_time.setSegments(dis_err);
+    dis_delay.clear();
+    return;
+  }
+  
+
+  unsigned pln_len = plnstr.length();
+  char num[pln_len];
+  char del[pln_len];
+  plnstr.toCharArray(num,pln_len);
+  actstr.toCharArray(del,pln_len);
+
+  // TODO
+  int time_diff = 0;
+
+  // convert chars for planned departure time
+  int h10 = int(num[0] + 48);
+  int h01 = int(num[1] + 48); // hours
+  int m10 = int(num[3] + 48);
+  int m01 = int(num[4] + 48); // minutes
+  int s10 = int(num[6] + 48);
+  int s01 = int(num[7] + 48); // seconds
+
+
+  TimeDisp[0] = dis_time.encodeDigit(h10); // 1st digit
+  TimeDisp[1] = dis_time.encodeDigit(h01); // 2nd digit
+  TimeDisp[2] = dis_time.encodeDigit(m10); // 3rd digit
+  TimeDisp[3] = dis_time.encodeDigit(m01); // 4th digit
+
+  // Enable colon by setting bit 0x80 on middle segment
+  TimeDisp[1] |= 0x80;
+
+  dis_time.setSegments(TimeDisp); // Display the time with colon
 }
 
 // finds time coming after find string; returns NO_RESULT if nothing is found
@@ -77,7 +158,7 @@ String find_time(char* find, char* expression, int offset) {
   else return "NO_RESULT";
 }
 
-void parseResponse() {
+void parseResponse(String pln, String act) {
   String response = "";
   while (client.connected()) {
     if (client.available()) {
@@ -91,10 +172,14 @@ void parseResponse() {
   char chptr[response.length()];
   response.toCharArray(chptr, response.length());
 
-  String pln = find_time("trias:TimetabledTime", chptr, 32);
-  String exp = find_time("trias:EstimatedTime", chptr, 31);
+  pln = find_time("trias:TimetabledTime", chptr, 32);
+  act = find_time("trias:EstimatedTime", chptr, 31);
+
+  pln1 = pln;
+  act1 = act;
+
   Serial.println(pln);
-  Serial.println(exp);
+  Serial.println(act);
   //Serial.println(response);
 }
 
@@ -113,22 +198,14 @@ void sendPostRequest(const char* xml_Data) {
     client.println(strlen(xml_Data));
     client.println();
     client.println(xml_Data);
-    parseResponse();
-    /* Read the response from the server
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        Serial.write(c);
-      }
-    }
-    DEBUG_PRINT_LN("\nDisconnecting from server.");
-    client.stop();*/
+    
+    parseResponse(pln1, act1);
+
   } else {
     DEBUG_PRINT_LN("Connection failed.");
   }
 
-  DEBUG_PRINT_LN("Wait five seconds");
-  delay(5000);
+  //delay(5000);
 }
 
 void loop() {
