@@ -1,0 +1,1 @@
+void set_time_diff(int diff, int& idx_10h, int& idx_01h);
