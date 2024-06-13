@@ -19,6 +19,10 @@ char page[] = "/trias2020";
 int status = WL_IDLE_STATUS;
 int port = 443;
 
+int request_offset = 4; // how many minutes the request is set to the future (such that the next connection is shown sooner)
+int cur_hour;
+int cur_minute;
+int cur_second;
 
 WiFiSSLClient client;
 
@@ -78,7 +82,7 @@ void setup() {
   int brightness = 0;
   uint8_t eight = dis_time1.encodeDigit(8);
   uint8_t eights[] = {eight, eight, eight, eight};
-  eights[1] |= 0x80;
+  eights[1] |= 0x80; // set semicolon
 
   dis_time1.setBrightness(brightness);
   dis_time1.setSegments(eights);
@@ -131,7 +135,7 @@ void setup() {
   ntp.begin();
   int zone_hour = atoi(ntp.formattedTime("%H"));
   diff = zone_hour - zulu_hour;
-  Serial.println(diff);
+  DEBUG_PRINT_LN(diff);
 
   create_xml_request(pln1, act1, 1); // request current service information for departure board 1
 
@@ -142,9 +146,22 @@ void create_xml_request(String& pln, String& act, int information) {
   static char xmlData[XML_BUFF_SIZE];  // Static buffer to prevent frequent allocation
   memset(xmlData, 0, XML_BUFF_SIZE);  // Clear buffer
 
+  // if current time + request_offset is still in the current day, add offset
+  cur_hour = atoi(ntp.formattedTime("%H"));
+  cur_minute = atoi(ntp.formattedTime("%M"));
+  cur_second = atoi(ntp.formattedTime("%S"));
+  if (!(cur_hour == 23) && (cur_minute >= request_offset)) {
+    cur_minute += request_offset;
+    if (cur_minute >= 60) {
+      cur_hour++;
+      cur_minute %= 60;
+    } 
+  }
+
   String cur_time = String(ntp.formattedTime("%Y")) + "-" + String(ntp.formattedTime("%m")) 
-                    + "-" + String(ntp.formattedTime("%d")) + "T" + String(ntp.formattedTime("%T"));
-  Serial.println(cur_time);
+                    + "-" + String(ntp.formattedTime("%d")) + "T" + String(cur_hour) + ":" 
+                    + String(cur_minute) + ":" + String(cur_second);
+  DEBUG_PRINT_LN(cur_time);
   switch (information) {
     case 1:
       snprintf(xmlData, XML_BUFF_SIZE, "%s<DepArrTime>%s</DepArrTime>%s", XML_REQ1_1, cur_time.c_str(), XML_REQ1_2);
@@ -230,6 +247,8 @@ void setdisplays(String plnstr, String actstr, TM1637Display dis_time, TM1637Dis
   encode_ints(h10, h01, m10, m01, TimeDisp);
   setdisplay(TimeDisp, true, dis_time);
 
+  if (delay < 30) delay = 0; // ignore delays smaller than 30 seconds, since this can be withing the normal timetable
+
   // Display delay
   if (delay != 0) {
     int a, b, c, d;
@@ -281,6 +300,9 @@ void setdisplays(String plnstr, String actstr, TM1637Display dis_time, TM1637Dis
     }
     setdisplay(DelDisp, false, dis_delay);
   }
+  else {
+    dis_delay.clear();
+  }
   
 }
 
@@ -301,7 +323,7 @@ void parseResponse(String& pln, String& act) {
   }
 
   client.stop();
-  Serial.println("Disconnected from server.");
+  DEBUG_PRINT_LN("Disconnected from server.");
 
   char chptr[response.length()];
   response.toCharArray(chptr, response.length());
@@ -312,9 +334,9 @@ void parseResponse(String& pln, String& act) {
   //pln1 = pln;
   //act1 = act;
 
-  Serial.println(pln);
-  Serial.println(act);
-  //Serial.println(response);
+  DEBUG_PRINT_LN(pln);
+  DEBUG_PRINT_LN(act);
+  //DEBUG_PRINT_LN(response);
 }
 
 void sendPostRequest(const char* xml_Data, String& pln, String& act) {
@@ -344,7 +366,7 @@ void sendPostRequest(const char* xml_Data, String& pln, String& act) {
 }
 
 void loop() {
-  delay(1000); // refresh in one minute
+  delay(60000); // refresh in one minute
   ntp.update();
   create_xml_request(pln1, act1, 1); // request current service information for departure board 1
 
