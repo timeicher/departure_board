@@ -1,6 +1,8 @@
 #define DEBUG_PRINT(x) Serial.print(x)
 #define DEBUG_PRINT_LN(x) Serial.println(x)
 #define XML_BUFF_SIZE 1500  // Adjust size based on expected maximum XML length
+#define RES_BUFF_SIZE 9000 // buffer for response from server
+#define REQ_BUFF_SIZE 3000 // buffer for request from server
 
 #include <WiFiS3.h>
 #include <TM1637Display.h>
@@ -31,11 +33,11 @@ WiFiUDP wifiUdp;
 NTP ntp(wifiUdp);
 int diff; // difference from zulu time to current timezone
 
-// times to display (planned and actual); if "NO_RESULT" there is no valid time; format is "hh:mm:ss" - hours, minutes, seconds
-String pln1;
-String pln2;
-String act1;
-String act2;
+// times to display (planned and actual); if "NO_RESLT" there is no valid time; format is "hh:mm:ss" - hours, minutes, seconds
+char pln1[9];
+char pln2[9];
+char act1[9];
+char act2[9];
 
 // delay of corresponding connection in seconds
 int delay1;
@@ -125,7 +127,7 @@ void setup() {
   // get current difference in time zone
   ntp.begin();
   int zulu_hour = atoi(ntp.formattedTime("%H"));
-  while (atoi(ntp.formattedTime("%M")) == 59) {
+  while (atoi(ntp.formattedTime("%M")) == 59) { // only get reference time if the current minute isn't 59
     ntp.update();
     zulu_hour = atoi(ntp.formattedTime("%H"));
     delay(1000);
@@ -147,7 +149,7 @@ void setup() {
   setdisplays(pln2, act2, dis_time2, dis_delay2, delay2);
 }
 
-void create_xml_request(String& pln, String& act, int information) {
+void create_xml_request(char* pln, char* act, int information) {
   static char xmlData[XML_BUFF_SIZE];  // Static buffer to prevent frequent allocation
   memset(xmlData, 0, XML_BUFF_SIZE);  // Clear buffer
 
@@ -183,17 +185,17 @@ void create_xml_request(String& pln, String& act, int information) {
   sendPostRequest(xmlData, pln, act);
 }
 
-// finds time coming after find string; returns NO_RESULT if nothing is found
-String find_time(char* find, char* expression, int offset) {
+// searches find in expression and saves it to buf with given offset
+void find_time(char* find, char* expression, int offset, char* buf) {
   char* idx_time = strstr(expression,find);
   if (idx_time != NULL) {
-    char time[8];
-    strncpy(time,(idx_time + offset), 8); // 32/31 (timetable/expected) characters offset to get to time
-    time[8] = 0;
-    String timetabled(time);
-    return timetabled;
+    strncpy(buf,(idx_time + offset), 8); // 32/31 (timetable/expected) characters offset to get to time
+    buf[8] = 0;
   }
-  else return "NO_RESULT";
+  else {
+    char tmp[9] = "NO_RESLT";
+    strncpy(buf,tmp,9);
+  }
 }
 
 // sets one display to the desired state as this: 
@@ -205,23 +207,22 @@ void setdisplay(uint8_t States[], bool colon, TM1637Display dis) {
 }
 
 // Sets a display; if exp_time is true we treat it as a delay display
-void setdisplays(String plnstr, String actstr, TM1637Display dis_time, TM1637Display dis_delay, int delay) {
+void setdisplays(char* plnstr, char* actstr, TM1637Display dis_time, TM1637Display dis_delay, int& delay) {
   uint8_t TimeDisp[] = {0x00, 0x00, 0x00, 0x00};
   uint8_t DelDisp[] = {0x00, 0x00, 0x00, 0x00};
 
   // if there is no expected departure time display error and return
-  if (plnstr == "NO_RESULT") {
+  if (strcmp(plnstr, "NO_RESLT") == 0) {
     dis_time.setSegments(dis_err);
     dis_delay.clear();
     return;
   }
 
-
-  unsigned pln_len = plnstr.length() + 1;
-  char num[pln_len]; // char* holding planned time
-  char del[pln_len]; // char* holding actual time
-  plnstr.toCharArray(num,pln_len);
-  actstr.toCharArray(del,pln_len);
+  //unsigned pln_len = plnstr.length() + 1;
+  char* num = plnstr; // char* holding planned time
+  char* del = actstr; // char* holding actual time
+  //plnstr.toCharArray(num,pln_len);
+  //actstr.toCharArray(del,pln_len);
 
 
   // convert chars for planned departure time
@@ -233,7 +234,7 @@ void setdisplays(String plnstr, String actstr, TM1637Display dis_time, TM1637Dis
   int s01 = int(num[7] + 48); // seconds
 
   // if expected time is available calculate delay
-  if (actstr != "NO_RESULT") {
+  if (strcmp(actstr, "NO_RESLT") != 0) {
     // convert chars for actual departure time
     int ah10 = int(del[0] + 48);
     int ah01 = int(del[1] + 48); // hours
@@ -306,6 +307,7 @@ void setdisplays(String plnstr, String actstr, TM1637Display dis_time, TM1637Dis
       a = del_min / 100 % 10;
       b = del_min / 10 % 10;
       c = del_min / 1 % 10;
+      d = 0;
       encode_ints(a,b,c,d,DelDisp);
       DelDisp[3] = l_apastr;
     }
@@ -314,10 +316,9 @@ void setdisplays(String plnstr, String actstr, TM1637Display dis_time, TM1637Dis
   else {
     dis_delay.clear();
   }
-  
 }
 
-// always the first display is encoded for; it is assumed that all displays are identical
+// always dis_time1 is encoded for => it is assumed that all displays are identical
 void encode_ints(int first, int second, int third, int fourth, uint8_t States[]) {
   States[0] = dis_time1.encodeDigit(first); // 1st digit
   States[1] = dis_time1.encodeDigit(second); // 2nd digit
@@ -325,50 +326,51 @@ void encode_ints(int first, int second, int third, int fourth, uint8_t States[])
   States[3] = dis_time1.encodeDigit(fourth); // 4th digit
 }
 
-void parseResponse(String& pln, String& act) {
+void parseResponse(char* pln, char* act) {
   unsigned long start_time = millis();
-  String response = "";
+  static char response[RES_BUFF_SIZE];  // Static buffer to prevent frequent allocation
+  memset(response, 0, RES_BUFF_SIZE);  // Clear buffer
+
+  int count = 0;
   while (client.connected()) {
     if (client.available()) {
-      response += (char)client.read();
+      response[count] = (char)client.read();
+      ++count;
     }
   }
   unsigned long end_time = millis();
-  //DEBUG_PRINT_LN(String(end_time - start_time) + "ms");
+  DEBUG_PRINT_LN(String(end_time - start_time) + "ms");
 
   client.stop();
   DEBUG_PRINT_LN("Disconnected from server.");
 
-  char chptr[response.length()];
-  response.toCharArray(chptr, response.length());
 
-  pln = find_time("trias:TimetabledTime", chptr, 32);
-  act = find_time("trias:EstimatedTime", chptr, 31);
+  find_time("trias:TimetabledTime", response, 32, pln);
+  find_time("trias:EstimatedTime", response, 31, act);
 
-  //pln1 = pln;
-  //act1 = act;
+  DEBUG_PRINT_LN(String(pln));
+  DEBUG_PRINT_LN(String(act));
 
-  DEBUG_PRINT_LN(pln);
-  DEBUG_PRINT_LN(act);
-  if (pln == "NO_RESULT") DEBUG_PRINT_LN(response);
+  if (pln == "NO_RESLT") DEBUG_PRINT_LN(response);
 }
 
-void sendPostRequest(const char* xml_Data, String& pln, String& act) {
+void sendPostRequest(const char* xml_Data, char* pln, char* act) {
   DEBUG_PRINT_LN("making POST request...");
+  static char request[REQ_BUFF_SIZE];  // Static buffer to prevent frequent allocation
+  memset(request, 0, REQ_BUFF_SIZE);  // Clear buffer
 
+  snprintf(request, REQ_BUFF_SIZE, 
+    "POST %s HTTP/1.1\r\n"
+    "Host: %s\r\n"
+    "Content-Type: application/xml\r\n"
+    "Accept: application/xml\r\n"
+    "Authorization: Bearer %s\r\n"
+    "Content-Length: %d\r\n\r\n"
+    "%s", page, server, apiKey, strlen(xml_Data), xml_Data);
 
   if (client.connect(server,port)) {
     DEBUG_PRINT_LN("connected to server");
-    client.println("POST " + String(page) + " HTTP/1.1");
-    client.println("Host: " + String(server));
-    client.println("Content-Type: application/xml");
-    client.println("Accept: application/xml");
-    client.println("Authorization: Bearer " + String(apiKey));
-    client.print("Content-Length: ");
-    client.println(strlen(xml_Data));
-    client.println();
-    client.println(xml_Data);
-    
+    client.println(request);
     parseResponse(pln, act);
 
 
@@ -376,8 +378,6 @@ void sendPostRequest(const char* xml_Data, String& pln, String& act) {
     DEBUG_PRINT_LN("Connection failed.");
     while (true);
   }
-
-  //delay(5000);
 }
 
 void loop() {
