@@ -1,6 +1,8 @@
 # departure_board
 Arduino departure board using the Open-Data-Platform API
 
+WARNING: This code no longer works, as Trias2020 is no longer running
+
 To use it you need to create a file arduino_secrets.h in your repository and define the following macros:\
 #define SECRET_SSID "yourwifiid"\
 #define SECRET_PASS "yourpassword"\
